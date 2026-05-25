@@ -2,22 +2,10 @@ import 'package:accountify/core/database/database.dart';
 import 'package:accountify/core/providers/database_provider.dart';
 import 'package:accountify/core/theme/theme_mode.dart';
 import 'package:accountify/core/theme/theme_provider.dart';
-import 'package:accountify/core/widgets/system_overlay.dart';
 import 'package:accountify/routes/go_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-
-/// Entry point for system overlay window
-@pragma('vm:entry-point')
-void overlayMain() {
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: SystemOverlayWidget(),
-  ));
-}
-
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +17,6 @@ void main() async {
   for (var bank in banksList) {
     print('  - ${bank.name} (${bank.shortName})');
   }
-
 
   runApp(
     ProviderScope(

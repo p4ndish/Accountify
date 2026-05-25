@@ -20,38 +20,17 @@ class TransactionDetailScreen extends ConsumerWidget {
 
   final Transaction transaction;
 
-  static const Color _blue200 = Color(0xFF90CAF9);
-  static const Color _blue50 = Color(0xFFE3F2FD);
-  static const Color _blue700 = Color(0xFF1976D2);
-  static const Color _green50 = Color(0xFFE8F5E9);
-  static const Color _green600 = Color(0xFF43A047);
-  static const Color _green700 = Color(0xFF388E3C);
-  // Colors
-  static const Color _greenColor = Color(0xFF2E7D32);
-
-  static const Color _red50 = Color(0xFFFFEBEE);
-  static const Color _red600 = Color(0xFFE53935);
-  static const Color _red700 = Color(0xFFD32F2F);
-  static const Color _redColor = Color(0xFFC62828);
-
-  // Debug: Print transaction data on creation
-  void _debugPrintTransaction() {
-    debugPrint('=== Transaction Detail Data ===');
-    debugPrint('ID: ${transaction.id}');
-    debugPrint('Name: ${transaction.name}');
-    debugPrint('Amount: ${transaction.amount}');
-    debugPrint('Type: ${transaction.transactionType}');
-    debugPrint('SubType: ${transaction.subType}');
-    debugPrint('Ref: ${transaction.referenceCode}');
-    debugPrint('Balance After: ${transaction.balanceAfter}');
-    debugPrint('Date: ${transaction.date}');
-    debugPrint('================================');
-  }
+  static const _vatRate = '15% VAT';
 
   // ===========================================================================
   // HERO SECTION
   // ===========================================================================
-  Widget _buildHeroSection(ThemeData theme, bool isCredit, String subType) {
+  Widget _buildHeroSection(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    bool isCredit,
+    String subType,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(top: 20, bottom: 24),
       child: Center(
@@ -59,68 +38,66 @@ class TransactionDetailScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Icon Circle
-            _buildIconCircle(isCredit, subType),
-            
+            _buildIconCircle(colorScheme, isCredit, subType),
+
             const SizedBox(height: 12),
-            
+
             // Amount
-            Text(
-              _formatAmountDisplay(isCredit),
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w500,
-                color: isCredit ? _greenColor : _redColor,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                _formatAmountDisplay(colorScheme, isCredit),
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w500,
+                  color: isCredit
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onErrorContainer,
+                ),
               ),
             ),
-            
-            // const SizedBox(height: 4),
-            
-            // Subtitle label
-            // Text(
-            //   _getSubtitleLabel(subType, isCredit),
-            //   style: TextStyle(
-            //     fontSize: 13,
-            //     color: theme.colorScheme.onSurfaceVariant,
-            //   ),
-            // ),
-            
+
             const SizedBox(height: 10),
-            
+
             // Date
             Text(
               _formatDate(transaction.date),
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.outline,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
               ),
             ),
-            
+
             const SizedBox(height: 10),
-            
+
             // Status Pill
-            _buildStatusPill(isCredit),
+            _buildStatusPill(colorScheme, isCredit),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildIconCircle(bool isCredit, String subType) {
+  Widget _buildIconCircle(
+    ColorScheme colorScheme,
+    bool isCredit,
+    String subType,
+  ) {
     Color bgColor;
     Color iconColor;
     IconData iconData;
     double iconSize;
 
     if (isCredit) {
-      bgColor = _green50;
-      iconColor = _green600;
+      bgColor = colorScheme.primaryContainer;
+      iconColor = colorScheme.onPrimaryContainer;
       iconData = Icons.arrow_downward;
       iconSize = 24;
     } else {
-      bgColor = _red50;
-      iconColor = _red600;
+      bgColor = colorScheme.errorContainer;
+      iconColor = colorScheme.onErrorContainer;
       iconSize = 22;
-      
+
       switch (subType) {
         case 'package':
           iconData = Icons.data_usage;
@@ -152,45 +129,21 @@ class TransactionDetailScreen extends ConsumerWidget {
     );
   }
 
-  String _formatAmountDisplay(bool isCredit) {
+  String _formatAmountDisplay(ColorScheme colorScheme, bool isCredit) {
     final sign = isCredit ? '+' : '−';
     return '$sign ETB ${NumberFormat('#,##0.00').format(transaction.amount)}';
-  }
-
-  String _getSubtitleLabel(String subType, bool isCredit) {
-    final name = transaction.name;
-    
-    if (isCredit) {
-      switch (subType) {
-        case 'bank_in':
-          return 'Received from $name';
-        case 'p2p':
-        default:
-          return 'Received from $name';
-      }
-    } else {
-      switch (subType) {
-        case 'bank_out':
-          return 'Sent to $name';
-        case 'p2p':
-          return 'Sent to $name';
-        case 'package':
-          return name; // Package name IS the label
-        case 'airtime':
-          return 'Airtime · $name'; // Name holds phone number
-        default:
-          return 'Sent to $name';
-      }
-    }
   }
 
   String _formatDate(DateTime date) {
     return DateFormat("EEE, d MMM yyyy · h:mm a").format(date);
   }
 
-  Widget _buildStatusPill(bool isCredit) {
-    final bgColor = isCredit ? _green50 : _red50;
-    final textColor = isCredit ? _green700 : _red700;
+  Widget _buildStatusPill(ColorScheme colorScheme, bool isCredit) {
+    final bgColor =
+        isCredit ? colorScheme.primaryContainer : colorScheme.errorContainer;
+    final textColor = isCredit
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onErrorContainer;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
@@ -226,86 +179,100 @@ class TransactionDetailScreen extends ConsumerWidget {
   // ===========================================================================
   // TRANSACTION INFO SECTION
   // ===========================================================================
-  Widget _buildTransactionInfoSection(ThemeData theme, bool isCredit, String subType) {
+  Widget _buildTransactionInfoSection(
+    ThemeData theme,
+    bool isCredit,
+    String subType,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section Header
         Padding(
-          padding: const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 10),
+          padding:
+              const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 10),
           child: Text(
             'TRANSACTION INFO',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: theme.colorScheme.outline,
-              letterSpacing: 0.06 * 11, // 0.06em
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              letterSpacing: 0.06 * 11,
             ),
           ),
         ),
-        
+
         // Info Rows based on subType
         ..._buildInfoRows(theme, isCredit, subType),
       ],
     );
   }
 
-  List<Widget> _buildInfoRows(ThemeData theme, bool isCredit, String subType) {
+  List<Widget> _buildInfoRows(
+    ThemeData theme,
+    bool isCredit,
+    String subType,
+  ) {
     final rows = <_InfoRowData>[];
-    
+
     if (isCredit) {
       switch (subType) {
         case 'bank_in':
           rows.add(_InfoRowData('From', transaction.name));
-          rows.add(_InfoRowData('To account', '251953511050', isMono: true));
           rows.add(_InfoRowData('Type', 'Bank → telebirr'));
-          rows.add(_InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
         case 'p2p':
         default:
           rows.add(_InfoRowData('From', transaction.name));
-          rows.add(_InfoRowData('Phone', _maskPhone(transaction.name), isMono: true));
           rows.add(_InfoRowData('Type', 'telebirr transfer'));
-          rows.add(_InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
       }
     } else {
       switch (subType) {
         case 'bank_out':
           rows.add(_InfoRowData('To bank', transaction.name));
-          rows.add(_InfoRowData('Account no.', '1000157013347', isMono: true));
           rows.add(_InfoRowData('Type', 'telebirr → bank'));
-          rows.add(_InfoRowData('Telebirr ref', transaction.referenceCode, isMono: true));
+          rows.add(_InfoRowData(
+              'Telebirr ref', transaction.referenceCode,
+              isMono: true));
           if (transaction.secondaryReferenceCode.isNotEmpty) {
-            rows.add(_InfoRowData('Bank ref', transaction.secondaryReferenceCode, isMono: true));
+            rows.add(_InfoRowData(
+                'Bank ref', transaction.secondaryReferenceCode,
+                isMono: true));
           }
           break;
         case 'package':
           rows.add(_InfoRowData('Package', transaction.name));
-          rows.add(_InfoRowData('For number', '251953511050', isMono: true));
           rows.add(_InfoRowData('Type', 'Package purchase'));
-          rows.add(_InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
         case 'airtime':
-          rows.add(_InfoRowData('Recharged for', transaction.name, isMono: true));
+          rows.add(
+              _InfoRowData('Recharged for', transaction.name, isMono: true));
           rows.add(_InfoRowData('Type', 'Airtime recharge'));
-          rows.add(_InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
         case 'p2p':
         default:
           rows.add(_InfoRowData('To', transaction.name));
-          rows.add(_InfoRowData('Phone', _maskPhone(transaction.name), isMono: true));
           rows.add(_InfoRowData('Type', 'telebirr transfer'));
-          rows.add(_InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
       }
     }
-    
+
     return rows.asMap().entries.map((entry) {
       final index = entry.key;
       final data = entry.value;
       final isLast = index == rows.length - 1;
-      
+
       return _InfoRow(
         label: data.label,
         value: data.value,
@@ -313,12 +280,6 @@ class TransactionDetailScreen extends ConsumerWidget {
         showDivider: !isLast,
       );
     }).toList();
-  }
-
-  String _maskPhone(String name) {
-    // Extract phone from name if it contains masked format like 2519****7787
-    // For now, return a placeholder - in real app, store phone separately
-    return '2519****0093';
   }
 
   // ===========================================================================
@@ -335,7 +296,8 @@ class TransactionDetailScreen extends ConsumerWidget {
       children: [
         // Section Header
         Padding(
-          padding: const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 10),
+          padding:
+              const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 10),
           child: Text(
             'FEE BREAKDOWN',
             style: TextStyle(
@@ -346,7 +308,7 @@ class TransactionDetailScreen extends ConsumerWidget {
             ),
           ),
         ),
-        
+
         // Fee rows
         _FeeRow(
           label: 'Amount sent',
@@ -357,15 +319,17 @@ class TransactionDetailScreen extends ConsumerWidget {
           value: 'ETB ${NumberFormat('#,##0.00').format(fee)}',
         ),
         _FeeRow(
-          label: '15% VAT',
+          label: _vatRate,
           value: 'ETB ${NumberFormat('#,##0.00').format(feeVat)}',
         ),
-        
+
         // Total row with border
         Container(
           decoration: BoxDecoration(
             border: Border(
-              top: BorderSide(color: theme.dividerColor, width: 0.5),
+              top: BorderSide(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                  width: 0.5),
             ),
           ),
           child: Padding(
@@ -398,46 +362,11 @@ class TransactionDetailScreen extends ConsumerWidget {
   }
 
   // ===========================================================================
-  // BALANCE CARD
-  // ===========================================================================
-  Widget _buildBalanceCard(ThemeData theme) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8, left: 20, right: 20),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Balance after transaction',
-            style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'ETB ${NumberFormat('#,##0.00').format(transaction.balanceAfter)}',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ===========================================================================
   // ACTION BUTTONS
   // ===========================================================================
-  Widget _buildActionButtons(ThemeData theme) {
+  Widget _buildActionButtons(BuildContext context, ThemeData theme) {
     final hasReceipt = transaction.paymentLink.isNotEmpty;
-    
+
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 20, right: 20, bottom: 4),
       child: Row(
@@ -446,10 +375,10 @@ class TransactionDetailScreen extends ConsumerWidget {
             Expanded(
               child: _ActionButton(
                 label: 'View receipt ↗',
-                backgroundColor: _blue50,
-                foregroundColor: _blue700,
-                borderColor: _blue200,
-                onTap: () => _launchUrl(transaction.paymentLink),
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+                borderColor: theme.colorScheme.outline.withValues(alpha: 0.3),
+                onTap: () => _launchUrl(context, transaction.paymentLink),
               ),
             ),
             const SizedBox(width: 10),
@@ -468,15 +397,27 @@ class TransactionDetailScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _launchUrl(BuildContext context, String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open receipt link'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
   void _shareTransaction() {
-    final dateStr = DateFormat("EEE, d MMM yyyy · h:mm a").format(transaction.date);
+    final dateStr =
+        DateFormat("EEE, d MMM yyyy · h:mm a").format(transaction.date);
     Share.share(
       'Transaction ${transaction.referenceCode}\n'
       'Amount: ETB ${NumberFormat('#,##0.00').format(transaction.amount)}\n'
@@ -524,7 +465,7 @@ class TransactionDetailScreen extends ConsumerWidget {
             Text(
               'No tags saved',
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           const SizedBox(height: 16),
@@ -556,10 +497,8 @@ class TransactionDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    _debugPrintTransaction();
-    debugPrint('TransactionDetailScreen building...');
-
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final isCredit = transaction.transactionType == 'credited';
     final subType = transaction.subType.isEmpty ? 'p2p' : transaction.subType;
     final metadata = ref.watch(transactionMetadataProvider(transaction.id));
@@ -582,7 +521,7 @@ class TransactionDetailScreen extends ConsumerWidget {
           ),
           child: IconButton(
             icon: const Icon(Icons.arrow_back, size: 20),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.of(context).maybePop(),
             padding: EdgeInsets.zero,
           ),
         ),
@@ -595,20 +534,16 @@ class TransactionDetailScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Hero Section
-            _buildHeroSection(theme, isCredit, subType),
-            
+            _buildHeroSection(theme, colorScheme, isCredit, subType),
+
             // Divider
             Divider(height: 1, thickness: 0.5, color: theme.dividerColor),
-            
+
             // Transaction Info Section
             _buildTransactionInfoSection(theme, isCredit, subType),
-            
+
             // Fee Breakdown Section (only if fee > 0)
-            if (transaction.fee > 0)
-              _buildFeeBreakdownSection(theme),
-            
-            // Balance Card
-            _buildBalanceCard(theme),
+            if (transaction.fee > 0) _buildFeeBreakdownSection(theme),
 
             metadata.when(
               data: (value) => _buildMetadataSection(context, ref, value),
@@ -617,7 +552,7 @@ class TransactionDetailScreen extends ConsumerWidget {
             ),
 
             // Action Buttons
-            _buildActionButtons(theme),
+            _buildActionButtons(context, theme),
           ],
         ),
       ),
@@ -655,7 +590,7 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Column(
       children: [
         Padding(
@@ -669,7 +604,7 @@ class _InfoRow extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -684,7 +619,7 @@ class _InfoRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: isMono ? 11 : 13,
                     fontWeight: isMono ? FontWeight.normal : FontWeight.w500,
-                    color: isMono ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.onSurface,
+                    color: theme.colorScheme.onSurface,
                     fontFamily: isMono ? 'monospace' : null,
                   ),
                 ),
@@ -693,7 +628,12 @@ class _InfoRow extends StatelessWidget {
           ),
         ),
         if (showDivider)
-          Divider(height: 0.5, thickness: 0.5, color: theme.dividerColor, indent: 20, endIndent: 20),
+          Divider(
+              height: 0.5,
+              thickness: 0.5,
+              color: theme.dividerColor,
+              indent: 20,
+              endIndent: 20),
       ],
     );
   }
@@ -714,7 +654,7 @@ class _FeeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
@@ -725,16 +665,21 @@ class _FeeRow extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.colorScheme.onSurfaceVariant,
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
           ),
         ],

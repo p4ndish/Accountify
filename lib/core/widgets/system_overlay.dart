@@ -41,9 +41,9 @@ class _SystemOverlayWidgetState extends State<SystemOverlayWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final amountColor = _isCredit 
-        ? const Color(0xFF22C55E) 
-        : const Color(0xFFEF4444);
+    final amountColor = _isCredit
+        ? const Color(0xFF4ADE80)
+        : const Color(0xFFF87171);
     final iconBgColor = amountColor.withValues(alpha: 0.2);
 
     return Material(
@@ -59,7 +59,7 @@ class _SystemOverlayWidgetState extends State<SystemOverlayWidget> {
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1E2E),
+            color: const Color(0xFF1F2937),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: amountColor.withValues(alpha: 0.3),
@@ -126,34 +126,26 @@ class _SystemOverlayWidgetState extends State<SystemOverlayWidget> {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  _bankName,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.7),
+              if (_bankName.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _bankName,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
       ),
     );
   }
-}
-
-/// Entry point for overlay - must be a top-level function
-@pragma('vm:entry-point')
-void overlayMain() {
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: SystemOverlayWidget(),
-  ));
 }

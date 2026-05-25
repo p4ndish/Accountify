@@ -1,4 +1,5 @@
-import 'package:accountify/core/theme/colors.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Overlay widget that displays transaction details when an SMS is received
@@ -29,6 +30,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
   late AnimationController _controller;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
+  Timer? _autoDismissTimer;
 
   @override
   void initState() {
@@ -57,31 +59,36 @@ class _TransactionOverlayState extends State<TransactionOverlay>
     _controller.forward();
 
     // Auto dismiss after 4 seconds
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted) {
-        _dismiss();
-      }
-    });
+    _autoDismissTimer = Timer(const Duration(seconds: 4), _dismiss);
   }
 
   @override
   void dispose() {
+    _autoDismissTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
+  bool _isDismissing = false;
+
   Future<void> _dismiss() async {
+    if (_isDismissing || !mounted) return;
+    _isDismissing = true;
+    _autoDismissTimer?.cancel();
     await _controller.reverse();
-    widget.onDismiss?.call();
+    if (mounted) {
+      widget.onDismiss?.call();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isCredit = widget.isCredit;
-    final amountColor = isCredit ? AppColors.darkTextReceived : AppColors.darkTextSent;
+    final colorScheme = Theme.of(context).colorScheme;
+    final amountColor = isCredit ? colorScheme.onPrimaryContainer : colorScheme.onErrorContainer;
     final iconBgColor = isCredit
-        ? AppColors.darkTextReceived.withValues(alpha: 0.2)
-        : AppColors.darkTextSent.withValues(alpha: 0.2);
+        ? colorScheme.onPrimaryContainer.withValues(alpha: 0.2)
+        : colorScheme.onErrorContainer.withValues(alpha: 0.2);
 
     return SlideTransition(
       position: _slideAnimation,
@@ -92,8 +99,8 @@ class _TransactionOverlayState extends State<TransactionOverlay>
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: GestureDetector(
               onTap: () {
-                _dismiss();
                 widget.onTap?.call();
+                _dismiss();
               },
               onVerticalDragEnd: (details) {
                 if (details.primaryVelocity != null && details.primaryVelocity! < 0) {
@@ -105,7 +112,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: AppColors.darkBgCard,
+                    color: colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: amountColor.withValues(alpha: 0.3),
@@ -146,7 +153,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
                               isCredit ? 'Money Received' : 'Money Sent',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.darkTextSecondary,
+                                color: colorScheme.onSurfaceVariant,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -164,7 +171,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
                                 '${isCredit ? 'From' : 'To'}: ${widget.senderOrRecipient}',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: AppColors.darkTextSecondary,
+                                  color: colorScheme.onSurfaceVariant,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -180,7 +187,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.darkBgSheet,
+                          color: colorScheme.surface,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -188,7 +195,7 @@ class _TransactionOverlayState extends State<TransactionOverlay>
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: AppColors.darkTextSecondary,
+                            color: colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ),
@@ -244,6 +251,7 @@ class TransactionOverlayController {
   }
 
   static void dismiss() {
+    if (_currentOverlay == null) return;
     _currentOverlay?.remove();
     _currentOverlay = null;
   }

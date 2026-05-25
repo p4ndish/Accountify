@@ -1,3 +1,4 @@
+import 'package:accountify/core/widgets/transitions/slide_direction.dart';
 import 'package:flutter/material.dart';
 
 /// Smooth modal transitions for bottom sheets and dialogs
@@ -183,7 +184,7 @@ class ModalTransitions {
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final Offset beginOffset = _getOffset(direction);
+          final Offset beginOffset = slideDirectionOffset(direction);
           
           final slideTween = Tween<Offset>(
             begin: beginOffset,
@@ -206,22 +207,7 @@ class ModalTransitions {
       ),
     );
   }
-  
-  static Offset _getOffset(SlideDirection direction) {
-    switch (direction) {
-      case SlideDirection.right:
-        return const Offset(-1.0, 0.0);
-      case SlideDirection.left:
-        return const Offset(1.0, 0.0);
-      case SlideDirection.up:
-        return const Offset(0.0, 1.0);
-      case SlideDirection.down:
-        return const Offset(0.0, -1.0);
-    }
-  }
 }
-
-enum SlideDirection { right, left, up, down }
 
 // =============================================================================
 // ANIMATED BOTTOM SHEET CONTENT
@@ -234,21 +220,9 @@ class _AnimatedBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: ModalTransitions.defaultDuration,
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
-          ),
-        );
-      },
-      child: child,
-    );
+    // showModalBottomSheet already provides slide-up + fade animation.
+    // No additional animation wrapper needed.
+    return child;
   }
 }
 
@@ -264,7 +238,7 @@ class _BottomSheetContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -283,16 +257,19 @@ class _BottomSheetContent extends StatelessWidget {
           // Drag handle
           Container(
             margin: const EdgeInsets.only(top: 12, bottom: 8),
-            width: 40,
-            height: 4,
+            width: 48,
+            height: 5,
             decoration: BoxDecoration(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2.5),
             ),
           ),
           // Content
           Flexible(
-            child: child,
+            child: PrimaryScrollController(
+              controller: scrollController ?? PrimaryScrollController.of(context),
+              child: child,
+            ),
           ),
         ],
       ),
@@ -351,47 +328,66 @@ class _ModalBottomSheetRoute<T> extends PopupRoute<T> {
     final theme = Theme.of(context);
     
     Widget content = builder(context);
-    
-    content = Container(
+
+    final dragHandle = Container(
+      margin: const EdgeInsets.only(top: 12, bottom: 8),
+      width: 40,
+      height: 4,
       decoration: BoxDecoration(
-        color: backgroundColor ?? theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: theme.colorScheme.shadow.withValues(alpha: 0.2),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 12, bottom: 8),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Flexible(
-            child: isScrollControlled
-                ? DraggableScrollableSheet(
-                    expand: false,
-                    builder: (context, scrollController) {
-                      return SingleChildScrollView(
-                        controller: scrollController,
-                        child: content,
-                      );
-                    },
-                  )
-                : content,
-          ),
-        ],
+        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(2),
       ),
     );
+
+    if (isScrollControlled) {
+      content = DraggableScrollableSheet(
+        expand: false,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: BoxDecoration(
+              color: backgroundColor ?? theme.colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.shadow.withValues(alpha: 0.2),
+                  blurRadius: 20,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: ListView(
+              controller: scrollController,
+              padding: EdgeInsets.zero,
+              children: [
+                dragHandle,
+                content,
+              ],
+            ),
+          );
+        },
+      );
+    } else {
+      content = Container(
+        decoration: BoxDecoration(
+          color: backgroundColor ?? theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.shadow.withValues(alpha: 0.2),
+              blurRadius: 20,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            dragHandle,
+            content,
+          ],
+        ),
+      );
+    }
     
     if (useSafeArea) {
       content = SafeArea(child: content);
@@ -438,6 +434,8 @@ extension ModalExtensions on BuildContext {
     double initialChildSize = 0.5,
     double minChildSize = 0.25,
     double maxChildSize = 0.95,
+    bool snap = false,
+    List<double>? snapSizes,
   }) {
     return ModalTransitions.showSmoothBottomSheet<T>(
       context: this,
@@ -446,6 +444,8 @@ extension ModalExtensions on BuildContext {
       initialChildSize: initialChildSize,
       minChildSize: minChildSize,
       maxChildSize: maxChildSize,
+      snap: snap,
+      snapSizes: snapSizes,
     );
   }
   

@@ -1,4 +1,3 @@
-import 'package:accountify/core/theme/colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 
@@ -18,12 +17,17 @@ class CustomStatCardWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final receivedColor = colorScheme.onPrimaryContainer;
+    final sentColor = colorScheme.onErrorContainer;
+    final iconBgColor = isReceived ? colorScheme.primaryContainer : colorScheme.errorContainer;
+    final textColor = isReceived ? receivedColor : sentColor;
+
     return Container(
-      // width: MediaQuery.of(context).size.width * 0.3,
       width: double.infinity,
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: AppColors.darkBgHover,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -34,9 +38,7 @@ class CustomStatCardWidget extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor: isReceived
-                    ? const Color.fromARGB(103, 22, 163, 74)
-                    : const Color.fromARGB(255, 186, 48, 48),
+                backgroundColor: iconBgColor,
                 child: Padding(
                   padding: const EdgeInsets.all(4.0),
                   child: SvgPicture.asset(
@@ -44,9 +46,7 @@ class CustomStatCardWidget extends StatelessWidget {
                     width: 16,
                     height: 16,
                     colorFilter: ColorFilter.mode(
-                      isReceived
-                          ? AppColors.bgReceived
-                          : AppColors.darkTextPrimary,
+                      textColor,
                       BlendMode.srcIn,
                     ),
                   ),
@@ -58,9 +58,7 @@ class CustomStatCardWidget extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: isReceived
-                      ? AppColors.darkTextReceived
-                      : AppColors.darkTextSent,
+                  color: textColor,
                 ),
               ),
             ],
@@ -75,9 +73,7 @@ class CustomStatCardWidget extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
-                color: isReceived
-                    ? AppColors.textReceivedOpacity
-                    : AppColors.textSentOpacity,
+                color: textColor.withValues(alpha: 0.8),
               ),
             ),
           ),

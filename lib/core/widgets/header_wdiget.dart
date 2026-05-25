@@ -1,4 +1,3 @@
-import 'package:accountify/core/theme/colors.dart';
 import 'package:accountify/core/utils/images.dart';
 import 'package:accountify/core/widgets/statCard_widget.dart';
 import 'package:flutter/material.dart';
@@ -29,17 +28,6 @@ class CustomHeaderWidget extends StatefulWidget {
 class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
   bool _isBalanceVisible = true;
 
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
-  void dispose() {
-    // TODO: implement dispose
-    super.dispose();
-  }
-
   void _toggleBalanceVisibility() {
     setState(() {
       _isBalanceVisible = !_isBalanceVisible;
@@ -52,25 +40,27 @@ class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
-      padding: const EdgeInsets.only(left: 16, right: 16, top: 64, bottom: 16),
-      // margin: const EdgeInsets.symmetric(horizontal: 8),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: MediaQuery.of(context).padding.top + 16,
+        bottom: 16,
+      ),
       width: double.infinity,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors:
-              widget.color ??
-              [
-                AppColors.darkBgCard,
-                AppColors.darkBgSheet,
-                AppColors.darkBgHover,
-              ],
-          end: Alignment.topLeft,
-          begin: Alignment.bottomRight,
-          stops: const [0.0, 0.15, 1.0],
-          tileMode: TileMode.repeated,
-        ),
-        // border: Border.all(color: AppColors.borderColor),
+        gradient: widget.color != null
+            ? LinearGradient(
+                colors: widget.color!,
+                end: Alignment.topLeft,
+                begin: Alignment.bottomRight,
+                stops: const [0.0, 0.15, 1.0],
+                tileMode: TileMode.repeated,
+              )
+            : null,
+        color: widget.color == null ? colorScheme.surfaceContainerHighest : null,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -78,12 +68,11 @@ class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
         children: [
           // Wallet Icon
           Row(
-            // mainAxisAlignment: MainAxisAlignment.start,
             children: [
               CircleAvatar(
                 radius: widget.iconPath == null ? 24 : 32,
                 backgroundColor: widget.iconPath == null
-                    ? AppColors.darkBgHover
+                    ? colorScheme.onSurface.withValues(alpha: 0.08)
                     : Colors.white60,
                 child: SvgPicture.asset(
                   widget.iconPath ?? AppAssets.walletIcon,
@@ -102,7 +91,7 @@ class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 26,
-                    color: AppColors.darkTextPrimary,
+                    color: colorScheme.onSurface,
                     fontWeight: FontWeight.bold,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -113,41 +102,38 @@ class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
           const SizedBox(height: 18),
 
           Row(
-            // spacing: -8,
             mainAxisAlignment: MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(
                 "Total Balance",
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w100),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w100,
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(width: 8),
               GestureDetector(
-                onTap: () {
-                  // todo: implement toggle visibility
-                  _toggleBalanceVisibility();
-                  
-                },
+                onTap: _toggleBalanceVisibility,
                 child: Icon(
                   _isBalanceVisible
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
                   size: 16,
-                  color: AppColors.bgIcon,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "${(_isBalanceVisible ? widget.balance : _getBalanceMask())} ETB",
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-            ],
+          Text(
+            "${(_isBalanceVisible ? widget.balance : _getBalanceMask())} ETB",
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
           ),
 
           // simple stat
@@ -170,7 +156,7 @@ class _CustomHeaderWidgetState extends State<CustomHeaderWidget> {
                   text: "Sent",
                   amount:
                       "${(_isBalanceVisible ? widget.sent : _getBalanceMask())}",
-                  iconPath: AppAssets.arrowUpwardIcon,
+                  iconPath: AppAssets.arrowDownwardIcon,
                   isReceived: false,
                 ),
               ),

@@ -1,3 +1,4 @@
+import 'package:accountify/core/widgets/transitions/slide_direction.dart';
 import 'package:flutter/material.dart';
 
 /// Smooth page transitions for the app
@@ -20,7 +21,7 @@ class AppPageTransitions {
       opaque: true,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
         // Slide animation
-        final Offset beginOffset = _getOffset(direction);
+        final Offset beginOffset = slideDirectionOffset(direction);
         final tween = Tween<Offset>(
           begin: beginOffset,
           end: Offset.zero,
@@ -146,22 +147,7 @@ class AppPageTransitions {
       },
     );
   }
-  
-  static Offset _getOffset(SlideDirection direction) {
-    switch (direction) {
-      case SlideDirection.right:
-        return const Offset(1.0, 0.0);
-      case SlideDirection.left:
-        return const Offset(-1.0, 0.0);
-      case SlideDirection.up:
-        return const Offset(0.0, 1.0);
-      case SlideDirection.down:
-        return const Offset(0.0, -1.0);
-    }
-  }
 }
-
-enum SlideDirection { right, left, up, down }
 
 // =============================================================================
 // SHARED AXIS TRANSITION (Material You)
@@ -257,26 +243,17 @@ class FadeThroughTransition extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([animation, secondaryAnimation]),
+      animation: animation,
       builder: (context, child) {
-        // Primary animation: quick fade in
+        // Primary animation: fade in the incoming page
         final primaryFade = Tween<double>(
           begin: 0.0,
           end: 1.0,
         ).chain(CurveTween(curve: const Interval(0.0, 0.6, curve: Curves.easeOut)));
-        
-        // Secondary animation: quick fade out
-        final secondaryFade = Tween<double>(
-          begin: 1.0,
-          end: 0.0,
-        ).chain(CurveTween(curve: const Interval(0.4, 1.0, curve: Curves.easeIn)));
-        
+
         return Opacity(
           opacity: primaryFade.transform(animation.value),
-          child: Opacity(
-            opacity: secondaryFade.transform(secondaryAnimation.value),
-            child: child,
-          ),
+          child: child,
         );
       },
       child: child,

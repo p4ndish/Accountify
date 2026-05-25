@@ -75,12 +75,16 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async {
           await m.createAll();
+          // Create composite index for new installations
+          await customStatement(
+            'CREATE INDEX IF NOT EXISTS transactions_bank_date_index ON transactions(bank, date DESC)',
+          );
         },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
@@ -96,6 +100,12 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(transactions, transactions.reason);
             await m.createTable(tags);
             await m.createTable(transactionTags);
+          }
+          if (from < 5) {
+            // Add composite index for faster bank+date queries
+            await customStatement(
+              'CREATE INDEX IF NOT EXISTS transactions_bank_date_index ON transactions(bank, date DESC)',
+            );
           }
         },
       );
@@ -130,7 +140,6 @@ class AppDatabase extends _$AppDatabase {
           BanksCompanion(
             name: Value(bank['name']!),
             shortName: Value(shortName),
-            accountNumber: Value(accountNumber),
             addressName: Value(addressName),
             icon: Value(icon),
           ),

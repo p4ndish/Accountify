@@ -1,11 +1,10 @@
 import 'package:accountify/core/services/background_sms_service.dart';
-import 'package:accountify/core/theme/colors.dart';
 import 'package:accountify/core/widgets/custom_appbar.dart';
 import 'package:accountify/core/widgets/custom_cards_widget.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const _smsFetchingDisabledKey = 'sms_fetching_disabled';
@@ -21,7 +20,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _smsFetchingDisabled = false;
   bool _notificationsEnabled = false;
-  bool _overlayEnabled = false;
 
   @override
   void initState() {
@@ -32,12 +30,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final smsFetchingDisabled = await _storage.read(key: _smsFetchingDisabledKey);
     final notificationsAllowed = await AwesomeNotifications().isNotificationAllowed();
-    final overlayGranted = await FlutterOverlayWindow.isPermissionGranted();
     if (mounted) {
       setState(() {
         _smsFetchingDisabled = smsFetchingDisabled == 'true';
         _notificationsEnabled = notificationsAllowed;
-        _overlayEnabled = overlayGranted;
       });
     }
   }
@@ -69,52 +65,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Replace with your actual app store URL when published
     const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.accountify.app';
     final uri = Uri.parse(playStoreUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('App store link will be available after publishing')),
+          );
+        }
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('App store link will be available after publishing')),
+          const SnackBar(content: Text('Could not open the app store. Please try again later.')),
         );
       }
     }
   }
 
-  Future<void> _requestOverlayPermission() async {
-    final granted = await FlutterOverlayWindow.isPermissionGranted();
-    if (!granted) {
-      await FlutterOverlayWindow.requestPermission();
-    }
-    final newStatus = await FlutterOverlayWindow.isPermissionGranted();
-    setState(() {
-      _overlayEnabled = newStatus;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: CustomAppbar(title: "Settings"),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 164),
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 120),
           child: Column(
-            // mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             spacing: 12,
             children: [
-              Text(
-                "Settings",
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-              ),
               CustomCardWidget(
-                title: 'Personal Information',
-                subTitle: 'On',
+                title: 'Privacy Settings',
+                subTitle: _smsFetchingDisabled ? 'Disabled' : 'Enabled',
                 isIconTransparent: true,
                 onTap: () {
                   showModalBottomSheet(
                     context: context,
-                    backgroundColor: AppColors.darkBgApp,
+                    backgroundColor: colorScheme.surface,
                     shape: const RoundedRectangleBorder(
                       borderRadius: BorderRadius.vertical(
                         top: Radius.circular(24),
@@ -135,16 +125,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _openNotificationSettings,
               ),
               CustomCardWidget(
-                title: 'Transaction Overlay',
-                subTitle: _overlayEnabled ? 'Enabled' : 'Tap to enable',
-                isIconTransparent: true,
-                onTap: _requestOverlayPermission,
-              ),
-              CustomCardWidget(
                 title: 'Rate Us',
                 subTitle: 'Leave a review on the app store',
                 isIconTransparent: true,
                 onTap: _openAppStore,
+              ),
+              CustomCardWidget(
+                title: 'Share App',
+                subTitle: 'Tell others about Accountify',
+                isIconTransparent: true,
+                onTap: () {
+                  Share.share(
+                    'Check out Accountify - track your Ethiopian bank transactions! https://play.google.com/store/apps/details?id=com.accountify.app',
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Version 1.0.0',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -178,26 +180,27 @@ class _PersonalInfoBottomSheetState extends State<_PersonalInfoBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(24),
       height: MediaQuery.of(context).size.height * 0.5,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Personal Information',
+          Text(
+            'Privacy Settings',
             style: TextStyle(
-              color: Colors.white,
+              color: colorScheme.onSurface,
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 16),
-          const SizedBox(
+          SizedBox(
             width: double.infinity,
             child: Text(
               'This app is solely running on your mobile device. No data or other information will be sent outside.\n\nThis app will only look for common bank SMS messages (127, BOA, CBE, ZemenBank) and it will work only if you give it permission. If you wish to stop SMS message fetching, you can use the toggle below.',
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
             ),
           ),
           const SizedBox(height: 24),
@@ -205,18 +208,17 @@ class _PersonalInfoBottomSheetState extends State<_PersonalInfoBottomSheet> {
             mainAxisAlignment: MainAxisAlignment.center,
             spacing: 16,
             children: [
-              const Text(
+              Text(
                 "Stop SMS fetching",
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w900,
-                  // color: Color(0xFFB12828),
                 ),
               ),
               Switch.adaptive(
-                activeColor: AppColors.bgApp,
-                activeTrackColor: Color(0xFFB12828),
-                inactiveTrackColor: AppColors.darkBgSheet,
+                activeColor: colorScheme.primary,
+                activeTrackColor: colorScheme.error,
+                inactiveTrackColor: colorScheme.onSurface.withValues(alpha: 0.2),
                 value: _isEnabled,
                 onChanged: (bool value) {
                   setState(() {

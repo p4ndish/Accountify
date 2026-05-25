@@ -69,7 +69,7 @@ class BankRepository {
 
 
   
-  Future<List<TransactionWithBank>> getTransactionsWithBank(int bankId) async {
+  Future<List<TransactionWithBank>> getTransactionsWithBank(int bankId, {int limit = 100, int offset = 0}) async {
     final query = _db.select(_db.transactions).join([
       innerJoin(_db.banks, _db.banks.id.equalsExp(_db.transactions.bank)),
     ])
@@ -79,7 +79,8 @@ class BankRepository {
           expression: _db.transactions.date,
           mode: OrderingMode.desc,
         ),
-      ]);
+      ])
+      ..limit(limit, offset: offset);
 
     final rows = await query.get();
     return rows
@@ -241,6 +242,12 @@ class BankRepository {
       bank: row.readTable(_db.banks),
     );
   }
+
+  Future<void> updateAccountNumber(int bankId, String accountNumber) async {
+    await (_db.update(_db.banks)..where((b) => b.id.equals(bankId))).write(
+      BanksCompanion(accountNumber: Value(accountNumber)),
+    );
+  }
 }
 
 final transactionMetadataProvider =
@@ -279,7 +286,8 @@ final transactionsWithBanksListProvider =
     });
 
 final transactionsWithBankListProvider =
-    FutureProvider.family<List<TransactionWithBank>, int>((ref, bankId) async {
+    FutureProvider.autoDispose.family<List<TransactionWithBank>, int>((ref, bankId) async {
+      ref.keepAlive();
       final repository = ref.watch(bankRepositoryProvider);
       return repository.getTransactionsWithBank(bankId);
     });

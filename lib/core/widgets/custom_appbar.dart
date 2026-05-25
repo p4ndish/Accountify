@@ -1,6 +1,3 @@
-
-
-
 import 'package:accountify/core/theme/colors.dart';
 import 'package:accountify/core/theme/theme_provider.dart';
 import 'package:flutter/material.dart';
@@ -15,14 +12,13 @@ class CustomAppbar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return AppBar(
-        backgroundColor: AppColors.darkBgCard,
+        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
         elevation: 0,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.only(
             bottomLeft: Radius.circular(12.0),
             bottomRight: Radius.circular(12.0),
           ),
-          // side: BorderSide(color: AppColors.primaryBrand, width: 1.0),
         ),
         title: Text(title, style: TextStyle(fontSize: 16)),
         centerTitle: true,
