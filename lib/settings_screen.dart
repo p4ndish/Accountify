@@ -1,8 +1,13 @@
+import 'package:accountify/core/providers/app_lock_provider.dart';
+import 'package:accountify/core/providers/database_provider.dart';
+import 'package:accountify/core/providers/message_provider.dart';
 import 'package:accountify/core/services/background_sms_service.dart';
 import 'package:accountify/core/widgets/custom_appbar.dart';
 import 'package:accountify/core/widgets/custom_cards_widget.dart';
+import 'package:accountify/features/lock/screens/pin_setup_screen.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,16 +15,17 @@ import 'package:url_launcher/url_launcher.dart';
 const _smsFetchingDisabledKey = 'sms_fetching_disabled';
 const FlutterSecureStorage _storage = FlutterSecureStorage();
 
-class SettingsScreen extends StatefulWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _smsFetchingDisabled = false;
   bool _notificationsEnabled = false;
+  bool _isReimporting = false;
 
   @override
   void initState() {
@@ -84,6 +90,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _reimportTransactions() async {
+    if (_isReimporting) return;
+    setState(() => _isReimporting = true);
+
+    try {
+      final notifier = ref.read(smsImportNotifierProvider.notifier);
+      final imported = await notifier.refreshMessages();
+
+      // Refresh all balance/transaction views so the corrected data shows up.
+      ref.invalidate(banksListProvider);
+      ref.invalidate(transactionsListProvider);
+      ref.invalidate(transactionsWithBanksListProvider);
+      ref.invalidate(overallBalanceProvider);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            imported > 0
+                ? 'Re-import complete. $imported new transaction(s) added.'
+                : 'Re-import complete. Everything is up to date.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Re-import failed. Please check SMS permission and try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isReimporting = false);
+    }
+  }
+
+  void _openAppLockSheet() {
+    final colorScheme = Theme.of(context).colorScheme;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colorScheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _AppLockBottomSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -123,6 +178,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subTitle: _notificationsEnabled ? 'Enabled' : 'Disabled',
                 isIconTransparent: true,
                 onTap: _openNotificationSettings,
+              ),
+              CustomCardWidget(
+                title: 'App Lock',
+                subTitle: ref.watch(appLockProvider).isEnabled
+                    ? 'Enabled'
+                    : 'Disabled',
+                isIconTransparent: true,
+                onTap: _openAppLockSheet,
+              ),
+              CustomCardWidget(
+                title: 'Re-import transactions',
+                subTitle: _isReimporting
+                    ? 'Re-importing...'
+                    : 'Re-scan SMS to fix balances',
+                isIconTransparent: true,
+                onTap: _isReimporting ? () {} : _reimportTransactions,
               ),
               CustomCardWidget(
                 title: 'Rate Us',
@@ -230,6 +301,155 @@ class _PersonalInfoBottomSheetState extends State<_PersonalInfoBottomSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AppLockBottomSheet extends ConsumerStatefulWidget {
+  const _AppLockBottomSheet();
+
+  @override
+  ConsumerState<_AppLockBottomSheet> createState() =>
+      _AppLockBottomSheetState();
+}
+
+class _AppLockBottomSheetState extends ConsumerState<_AppLockBottomSheet> {
+  bool _busy = false;
+
+  Future<String?> _promptNewPin() {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const PinSetupScreen(),
+      ),
+    );
+  }
+
+  Future<void> _enable() async {
+    final pin = await _promptNewPin();
+    if (pin == null || !mounted) return;
+    setState(() => _busy = true);
+    await ref.read(appLockProvider.notifier).enableWithPin(pin);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _toast('App lock enabled');
+  }
+
+  Future<void> _changePin() async {
+    final pin = await _promptNewPin();
+    if (pin == null || !mounted) return;
+    setState(() => _busy = true);
+    await ref.read(appLockProvider.notifier).enableWithPin(pin);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _toast('PIN updated');
+  }
+
+  Future<void> _disable() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Turn off app lock?'),
+        content: const Text(
+          'Anyone with access to this device will be able to open the app.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Turn off'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    await ref.read(appLockProvider.notifier).disable();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    _toast('App lock disabled');
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    setState(() => _busy = true);
+    await ref.read(appLockProvider.notifier).setBiometricEnabled(value);
+    if (!mounted) return;
+    setState(() => _busy = false);
+  }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final lock = ref.watch(appLockProvider);
+    final isEnabled = lock.isEnabled;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'App Lock',
+              style: TextStyle(
+                color: colorScheme.onSurface,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isEnabled
+                  ? 'Accountify asks for your PIN when opened or brought back to the foreground.'
+                  : 'Protect your transactions with a PIN. You can also unlock with biometrics if your device supports it.',
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 20),
+            if (!isEnabled)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _busy ? null : _enable,
+                  icon: const Icon(Icons.lock_outline),
+                  label: const Text('Enable app lock'),
+                ),
+              )
+            else ...[
+              if (lock.biometricAvailable)
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Unlock with biometrics'),
+                  subtitle: const Text('Fingerprint or face'),
+                  value: lock.biometricEnabled,
+                  onChanged: _busy ? null : _toggleBiometric,
+                ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.password_rounded),
+                title: const Text('Change PIN'),
+                onTap: _busy ? null : _changePin,
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.lock_open_rounded, color: colorScheme.error),
+                title: Text(
+                  'Turn off app lock',
+                  style: TextStyle(color: colorScheme.error),
+                ),
+                onTap: _busy ? null : _disable,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

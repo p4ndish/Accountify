@@ -1,5 +1,7 @@
 package com.example.accountify
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth requires FlutterFragmentActivity (not FlutterActivity) so the
+// biometric prompt can attach to a FragmentActivity host.
+class MainActivity : FlutterFragmentActivity()

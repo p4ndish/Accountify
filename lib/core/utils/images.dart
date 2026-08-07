@@ -1,16 +1,14 @@
-import 'package:flutter/material.dart';
-
-
 class AppAssets {
+  // Brand
+  static const String appLogo = 'assets/images/picsvg_download.svg';
+
   static const String walletIcon = 'assets/icons/wallet_icon.svg';
   static const String visibilityIcon = 'assets/icons/visibility.svg';
   static const String visibilityOffIcon = 'assets/icons/visibility_off.svg';
   static const String arrowUpwardIcon = 'assets/icons/arrow_upward.svg';
   static const String arrowDownwardIcon = 'assets/icons/south.svg';
 
-
-
-  // banks 
+  // banks
   // static const String unitedBankIcon = 'assets/bank_icons/United-Bank-bank-circle.svg';
   static const String telebirrIcon = 'assets/bank_icons/telebirr.svg';
   static const String cbeBankIcon = 'assets/bank_icons/cbe.svg';
@@ -20,5 +18,4 @@ class AppAssets {
   // static const String amharaBankIcon = 'assets/bank_icons/Amahra-Bank-bank-circle.svg';
   static const String dashenBankIcon = 'assets/bank_icons/dashen-bank.svg';
   static const String zemenBankIcon = 'assets/bank_icons/zemen-bank.svg';
-
 }

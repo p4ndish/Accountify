@@ -6,6 +6,7 @@ import 'package:accountify/core/services/background_sms_service.dart';
 import 'package:accountify/core/widgets/transaction_metadata_bottom_sheet.dart';
 import 'package:accountify/core/widgets/transitions/modal_transitions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
@@ -108,6 +109,9 @@ class TransactionDetailScreen extends ConsumerWidget {
         case 'bank_out':
           iconData = Icons.account_balance;
           break;
+        case 'atm':
+          iconData = Icons.local_atm;
+          break;
         default:
           iconData = Icons.arrow_upward;
           iconSize = 24;
@@ -131,7 +135,7 @@ class TransactionDetailScreen extends ConsumerWidget {
 
   String _formatAmountDisplay(ColorScheme colorScheme, bool isCredit) {
     final sign = isCredit ? '+' : '−';
-    return '$sign ETB ${NumberFormat('#,##0.00').format(transaction.amount)}';
+    return '$sign ${NumberFormat('#,##0.00').format(transaction.amount)} ETB';
   }
 
   String _formatDate(DateTime date) {
@@ -255,6 +259,12 @@ class TransactionDetailScreen extends ConsumerWidget {
           rows.add(
               _InfoRowData('Recharged for', transaction.name, isMono: true));
           rows.add(_InfoRowData('Type', 'Airtime recharge'));
+          rows.add(
+              _InfoRowData('Reference', transaction.referenceCode, isMono: true));
+          break;
+        case 'atm':
+          rows.add(_InfoRowData('Withdrawal', transaction.name));
+          rows.add(_InfoRowData('Type', 'ATM withdrawal'));
           rows.add(
               _InfoRowData('Reference', transaction.referenceCode, isMono: true));
           break;
@@ -418,11 +428,20 @@ class TransactionDetailScreen extends ConsumerWidget {
   void _shareTransaction() {
     final dateStr =
         DateFormat("EEE, d MMM yyyy · h:mm a").format(transaction.date);
-    Share.share(
-      'Transaction ${transaction.referenceCode}\n'
-      'Amount: ETB ${NumberFormat('#,##0.00').format(transaction.amount)}\n'
-      'Date: $dateStr',
-    );
+    final buffer = StringBuffer()
+      ..writeln('Transaction ${transaction.referenceCode}')
+      ..writeln(
+        'Amount: ${NumberFormat('#,##0.00').format(transaction.amount)} ETB',
+      )
+      ..write('Date: $dateStr');
+
+    // Include the receipt link (the same one used by "View receipt") so the
+    // recipient can open the official transaction slip.
+    if (transaction.paymentLink.isNotEmpty) {
+      buffer.write('\nReceipt: ${transaction.paymentLink}');
+    }
+
+    Share.share(buffer.toString());
   }
 
   Widget _buildMetadataSection(
@@ -587,9 +606,52 @@ class _InfoRow extends StatelessWidget {
   final bool showDivider;
   final String value;
 
+  Future<void> _copyToClipboard(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label copied'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Monospace values are reference codes; make them tappable to copy.
+    final isCopiable = isMono;
+
+    final valueContent = Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: isMono ? 11 : 13,
+              fontWeight: isMono ? FontWeight.normal : FontWeight.w500,
+              color: theme.colorScheme.onSurface,
+              fontFamily: isMono ? 'monospace' : null,
+            ),
+          ),
+        ),
+        if (isCopiable) ...[
+          const SizedBox(width: 6),
+          Icon(
+            Icons.copy_rounded,
+            size: 14,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ],
+      ],
+    );
 
     return Column(
       children: [
@@ -611,18 +673,16 @@ class _InfoRow extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 flex: 3,
-                child: Text(
-                  value,
-                  textAlign: TextAlign.end,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: isMono ? 11 : 13,
-                    fontWeight: isMono ? FontWeight.normal : FontWeight.w500,
-                    color: theme.colorScheme.onSurface,
-                    fontFamily: isMono ? 'monospace' : null,
-                  ),
-                ),
+                child: isCopiable
+                    ? InkWell(
+                        onTap: () => _copyToClipboard(context),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: valueContent,
+                        ),
+                      )
+                    : valueContent,
               ),
             ],
           ),

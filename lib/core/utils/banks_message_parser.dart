@@ -54,7 +54,9 @@ class BankMessageParser {
   static DateTime? _parseIsoLikeDate(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return null;
-    final iso = trimmed.contains('T') ? trimmed : trimmed.replaceFirst(' ', 'T');
+    final iso = trimmed.contains('T')
+        ? trimmed
+        : trimmed.replaceFirst(' ', 'T');
     return DateTime.tryParse(iso);
   }
 
@@ -104,8 +106,14 @@ class BankMessageParser {
     final parsers = [
       _parseTelebirrCreditReceivedFromPerson,
       _parseTelebirrCreditReceivedFromBank,
+      _parseTelebirrCreditReversal,
       _parseTelebirrDebitTransferToPerson,
       _parseTelebirrDebitTransferToBank,
+      _parseTelebirrDebitAtmWithdrawal,
+      _parseTelebirrDebitUtilityPayment,
+      _parseTelebirrDebitBillPayment,
+      _parseTelebirrDebitDocumentPayment,
+      _parseTelebirrDebitMerchantPayment,
       _parseTelebirrDebitPackagePurchase,
       _parseTelebirrDebitAirtimeRecharge,
     ];
@@ -119,9 +127,15 @@ class BankMessageParser {
   }
 
   bool _shouldSkipTelebirr() {
-    // Must have a balance line to be a real transaction
+    // Must have a balance line to be a real transaction. Telebirr uses several
+    // phrasings depending on the transaction type, e.g.:
+    //   "Your current E-Money Account balance is ETB ..."
+    //   "Your current balance is ETB ..."
+    //   "Your current telebirr balance is ETB ..."      (utility payments)
+    //   "Your telebirr account balance is  ETB ..."      (bill payments)
+    //   "Your current Account balance is ETB ..."       (ATM withdrawals)
     final hasBalance = RegExp(
-      r'current\s+(?:E-Money\s+Account\s+)?balance\s+is',
+      r'(?:current\s+(?:E-Money\s+Account\s+|telebirr\s+|Account\s+)?balance\s+is|telebirr\s+account\s+balance\s+is)',
       caseSensitive: false,
     ).hasMatch(body);
 
@@ -142,19 +156,41 @@ class BankMessageParser {
       r'[Ff]inancial\s+[Mm]arketplace',
       r'airtime\s+from',
       r'account\s+ownership\s+verification',
+      // Cancelled request: balance is unchanged, no real transaction occurred
+      r'is\s+cancelled',
     ];
 
     for (final pattern in skipPatterns) {
       if (body.contains(RegExp(pattern, caseSensitive: false))) return true;
     }
 
+    // Amountless reversals (e.g. "Package Purchase request ... is reversed to
+    // your account") carry no ETB amount, so they cannot be recorded as a
+    // standalone transaction. Reversals that DO include "with amount ETB" are
+    // still parsed by _parseTelebirrCreditReversal.
+    final isReversal = RegExp(
+      r'is\s+reversed\s+to\s+your\s+account',
+      caseSensitive: false,
+    ).hasMatch(body);
+    final hasReversalAmount = RegExp(
+      r'with\s+amount\s+ETB',
+      caseSensitive: false,
+    ).hasMatch(body);
+    if (isReversal && !hasReversalAmount) return true;
+
     return false;
   }
 
   /// CREDIT 1: Peer-to-peer received from person
   ParsedTransaction? _parseTelebirrCreditReceivedFromPerson() {
+    // Handles several phone formats after the sender name:
+    //   (2519****7787)      -> masked
+    //   ( 251920609650)     -> full number, may have a leading space
+    //   (2519****7787) 100108 -> masked + trailing account number
+    // The transaction number may be preceded by a newline, and the balance
+    // label uses either "E-Money" or "E-money".
     final regex = RegExp(
-      r'You\s+have\s+received\s+ETB\s+([\d,]+\.?\d*)\s+from\s+([^()\n]+?)(?:\s*\(\d+\*{4}\d+\))?\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+transaction\s+number\s+is\s+([A-Z0-9]+)\.?\s*Your\s+current\s+E-Money\s+Account\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      r'You\s+have\s+received\s+ETB\s+([\d,]+\.?\d*)\s+from\s+([^()\n]+?)(?:\s*\(\s*[\d*]+\)(?:\s+\d+)?)?\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?\s*Your\s+current\s+E-Money\s+Account\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
       caseSensitive: false,
       dotAll: true,
     );
@@ -180,6 +216,7 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      subType: 'p2p',
     );
   }
 
@@ -212,13 +249,22 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      // Money received into Telebirr from a bank. We cannot reliably tell if the
+      // source bank account belongs to the user (a true internal transfer) or to
+      // someone else, because the app does not store the user's own account
+      // numbers. Treat it as a normal received transaction so real inflows are
+      // not hidden from the aggregate totals.
+      subType: '',
     );
   }
 
   /// DEBIT 1: Peer-to-peer transfer
   ParsedTransaction? _parseTelebirrDebitTransferToPerson() {
+    // Accepts masked "(2519****7787)" or full "(251960171717)" phone formats.
+    // An optional "service fee ... 15% VAT" clause may appear between the
+    // transaction number and the balance line; the ".*?" absorbs it.
     final regex = RegExp(
-      r'You\s+have\s+transferred\s+ETB\s+([\d,]+\.?\d*)\s+to\s+([^()\n]+?)(?:\s*\(\d+\*{4}\d+\))?\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+transaction\s+number\s+is\s+([A-Z0-9]+)\.?.*?Your\s+current\s+(?:E-Money\s+Account\s+)?balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      r'You\s+have\s+transferred\s+ETB\s+([\d,]+\.?\d*)\s+to\s+([^()\n]+?)(?:\s*\(\s*[\d*]+\))?\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?.*?Your\s+current\s+(?:E-Money\s+Account\s+)?balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
       caseSensitive: false,
       dotAll: true,
     );
@@ -244,13 +290,14 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      subType: 'p2p',
     );
   }
 
   /// DEBIT 2: Telebirr to bank account
   ParsedTransaction? _parseTelebirrDebitTransferToBank() {
     final regex = RegExp(
-      r'You\s+have\s+transferred\s+ETB\s+([\d,]+\.?\d*)\s+successfully\s+from\s+your\s+telebirr\s+account\s+\d+\s+to\s+(.+?)\s+account\s+number\s+\d+\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+telebirr\s+transaction\s+number\s+is\s+([A-Z0-9]+)\.?.*?Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      r'You\s+have\s+transferred\s+ETB\s+([\d,]+\.?\d*)\s+successfully\s+from\s+your\s+telebirr\s+account\s+\d+\s+to\s+(.+?)\s+account\s+number\s+(\d+)\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+telebirr\s+transaction\s+number\s+is\s+([A-Z0-9]+)\.?.*?Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
       caseSensitive: false,
       dotAll: true,
     );
@@ -260,9 +307,10 @@ class BankMessageParser {
 
     final amount = _parseAmount(match.group(1)!);
     final bankName = match.group(2)!.trim();
-    final dateStr = match.group(3)!;
-    final refCode = match.group(4)!;
-    final balance = _parseAmount(match.group(5)!);
+    final counterpartyAccount = match.group(3)!.trim();
+    final dateStr = match.group(4)!;
+    final refCode = match.group(5)!;
+    final balance = _parseAmount(match.group(6)!);
 
     if (amount == null || balance == null) return null;
 
@@ -276,13 +324,21 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      // Default to a normal sent transaction. If the destination account matches
+      // one of the user's own stored bank accounts, import-time classification
+      // (in message_provider) upgrades this to an internal 'bank_out'.
+      subType: '',
+      counterpartyAccount: counterpartyAccount,
     );
   }
 
   /// DEBIT 3: Package purchase
   ParsedTransaction? _parseTelebirrDebitPackagePurchase() {
+    // The package name is often empty ("for package  purchase made for NUM"),
+    // and the balance line may run straight into "To download" with no space
+    // ("...balance is ETB 0.00.To download...").
     final regex = RegExp(
-      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+for\s+package\s+(.+?)\s+(?:purchase|renewal)\s+made\s+for\s+\d+\s+on\s+([\d/]+\s+[\d:]+)\.?\s*Your\s+transaction\s+number\s+is\s+([A-Z0-9]+)\.?\s*Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+for\s+package\s*(.*?)\s*(?:purchase|renewal)\s+made\s+for\s*\d*\s+on\s+([\d/]+\s+[\d:]+)\.?\s*Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?\s*Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
       caseSensitive: false,
       dotAll: true,
     );
@@ -291,7 +347,8 @@ class BankMessageParser {
     if (match == null) return null;
 
     final amount = _parseAmount(match.group(1)!);
-    final packageName = match.group(2)!.trim();
+    final rawPackageName = match.group(2)!.trim();
+    final packageName = rawPackageName.isEmpty ? 'Package' : rawPackageName;
     final dateStr = match.group(3)!;
     final refCode = match.group(4)!.replaceAll('.', '');
     final balance = _parseAmount(match.group(5)!);
@@ -308,6 +365,7 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      subType: 'package',
     );
   }
 
@@ -340,6 +398,231 @@ class BankMessageParser {
       referenceCode: refCode,
       paymentLink: _extractUrl(body),
       date: date,
+      subType: 'airtime',
+    );
+  }
+
+  /// DEBIT 5: Merchant payment ("goods purchased from/to MERCHANT")
+  /// Example: You have paid ETB 105.00 for goods purchased from 504807 -
+  /// QUEENS SUPER MARKET PLC Nani Branch on 11/04/2026 19:04:29. Your
+  /// transaction number is  DDB2SNE8WC. Your current balance is ETB 1,688.84.
+  ParsedTransaction? _parseTelebirrDebitMerchantPayment() {
+    final regex = RegExp(
+      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+for\s+goods\s+purchased\s+(?:from|to)\s+\d+\s*-\s*(.+?)\s+on\s+([\d/]+\s+[\d:]+)\.\s*Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?\s*Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final amount = _parseAmount(match.group(1)!);
+    final merchant = match.group(2)!.trim();
+    final dateStr = match.group(3)!;
+    final refCode = match.group(4)!.replaceAll('.', '');
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseDdMmYyyyHms(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: merchant,
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'debited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'merchant',
+    );
+  }
+
+  /// DEBIT 6: Utility payment (electricity/water etc. via a payment number)
+  /// Example: You have paid ETB 34.11 to Ethiopian Electric Utility with Payment
+  /// number 100000352415 on 21/07/2026 12:47:34. The service fee is ETB 2.00 and
+  /// 15% VAT on the service fee is ETB 0.30. Your transaction number is
+  /// DGL140IS51 Your current telebirr balance is ETB 18,999.98.
+  ParsedTransaction? _parseTelebirrDebitUtilityPayment() {
+    final regex = RegExp(
+      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+to\s+(.+?)\s+with\s+Payment\s+number\s+\d+\s+on\s+([\d/]+\s+[\d:]+)\..*?Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?.*?(?:current\s+telebirr\s+balance\s+is|telebirr\s+account\s+balance\s+is|current\s+balance\s+is)\s+ETB\s+([\d,]+\.?\d*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final amount = _parseAmount(match.group(1)!);
+    final payee = match.group(2)!.trim();
+    final dateStr = match.group(3)!;
+    final refCode = match.group(4)!.replaceAll('.', '');
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseDdMmYyyyHms(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: payee,
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'debited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'utility',
+    );
+  }
+
+  /// DEBIT 7: Bill payment ("to pay bill for NUMBER")
+  /// Example: You have paid ETB 998.99 to pay bill for 677587487 on 21/07/2026
+  /// 12:47:24. Your transaction number is DGL640IQXU. Your telebirr account
+  /// balance is  ETB 19,036.39.
+  ParsedTransaction? _parseTelebirrDebitBillPayment() {
+    final regex = RegExp(
+      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+to\s+pay\s+bill\s+for\s+(\d+)\s+on\s+([\d/]+\s+[\d:]+)\..*?Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?.*?(?:current\s+telebirr\s+balance\s+is|telebirr\s+account\s+balance\s+is|current\s+balance\s+is)\s+ETB\s+([\d,]+\.?\d*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final amount = _parseAmount(match.group(1)!);
+    final billNumber = match.group(2)!.trim();
+    final dateStr = match.group(3)!;
+    final refCode = match.group(4)!.replaceAll('.', '');
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseDdMmYyyyHms(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: 'Bill payment $billNumber',
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'debited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'bill',
+    );
+  }
+
+  /// DEBIT 8: Document/organization payment ("to PAYEE with payment Document
+  /// Number NUM"). Example: You have paid ETB 801.00 to FHC B2 with payment
+  /// Document Number 022533 on 21/07/2026 12:47:45...Your current telebirr
+  /// balance is ETB 18,194.38.
+  ParsedTransaction? _parseTelebirrDebitDocumentPayment() {
+    final regex = RegExp(
+      r'You\s+have\s+paid\s+ETB\s+([\d,]+\.?\d*)\s+to\s+(.+?)\s+with\s+payment\s+Document\s+Number\s+\d+\s+on\s+([\d/]+\s+[\d:]+)\..*?Your\s+transaction\s+number\s+is\s*([A-Z0-9]+)\.?.*?(?:current\s+telebirr\s+balance\s+is|telebirr\s+account\s+balance\s+is|current\s+balance\s+is)\s+ETB\s+([\d,]+\.?\d*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final amount = _parseAmount(match.group(1)!);
+    final payee = match.group(2)!.trim();
+    final dateStr = match.group(3)!;
+    final refCode = match.group(4)!.replaceAll('.', '');
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseDdMmYyyyHms(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: payee,
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'debited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'bill',
+    );
+  }
+
+  /// CREDIT 3: Reversal/refund ("... is reversed to your account ...")
+  /// Covers reversed Package Purchase and ATM withdraw requests. The money is
+  /// returned, so this is treated as a credit.
+  /// Example: Your transaction for ATM withdraw request with telebirr receipt
+  /// number DH54JBTT1A and with amount ETB 1,350.00 is reversed to your account
+  /// on 2026-08-05 10:44:31. Your current balance is ETB 2,701.00. Your
+  /// transaction number is DH57JBTQUH is successfully completed.
+  ParsedTransaction? _parseTelebirrCreditReversal() {
+    final regex = RegExp(
+      r'Your\s+transaction\s+for\s+(.+?)\s+request\s+with\s+telebirr\s+receipt\s+number\s+([A-Z0-9]+)\s+.*?with\s+amount\s+ETB\s+([\d,]+\.?\d*)\s+is\s+reversed\s+to\s+your\s+account\s+on\s+([\d\-]+\s+[\d:]+)\.\s*Your\s+current\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)\.\s*Your\s+transaction\s+number\s+is\s+([A-Z0-9]+)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final requestType = match.group(1)!.trim();
+    final amount = _parseAmount(match.group(3)!);
+    final dateStr = match.group(4)!;
+    // Use the completion transaction number (group 6) as the unique reference so
+    // it does not collide with the original (reversed) transaction.
+    final refCode = match.group(6)!;
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseIsoLikeDate(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: 'Reversal: $requestType',
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'credited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'reversal',
+    );
+  }
+
+  /// DEBIT: ATM withdrawal completion
+  /// Example: The request to withdraw ETB 1,400.00 from your telebirr account
+  /// 251953511050  via secret code 139859 on  2026-08-05 10:46:48 using Awash
+  /// International Bank S C ATM with transaction number  DH59JBWV0V is
+  /// successfully completed. The service fee (including 15% VAT) is ETB 8.05.
+  /// Your current Account balance is ETB 1,292.95.
+  ParsedTransaction? _parseTelebirrDebitAtmWithdrawal() {
+    final regex = RegExp(
+      r'request\s+to\s+withdraw\s+ETB\s+([\d,]+\.?\d*)\s+from\s+your\s+telebirr\s+account\s+\d+\s+via\s+secret\s+code\s+\d+\s+on\s+([\d\-]+\s+[\d:]+)\s+using\s+(.+?)\s+ATM\s+with\s+transaction\s+number\s+([A-Z0-9]+)\s+is\s+successfully\s+completed\..*?Your\s+current\s+Account\s+balance\s+is\s+ETB\s+([\d,]+\.?\d*)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = regex.firstMatch(body);
+    if (match == null) return null;
+
+    final amount = _parseAmount(match.group(1)!);
+    final dateStr = match.group(2)!;
+    final atmBank = match.group(3)!.trim();
+    final refCode = match.group(4)!;
+    final balance = _parseAmount(match.group(5)!);
+
+    if (amount == null || balance == null) return null;
+
+    final date = _parseIsoLikeDate(dateStr) ?? _dateFromMillis();
+
+    return ParsedTransaction(
+      name: 'ATM withdrawal ($atmBank)',
+      amount: amount,
+      balanceAfter: balance,
+      transactionType: 'debited',
+      referenceCode: refCode,
+      paymentLink: _extractUrl(body),
+      date: date,
+      subType: 'atm',
     );
   }
 
@@ -375,10 +658,7 @@ class BankMessageParser {
     if (!hasTransaction) return true;
 
     // Skip OTP and promotional
-    final skipPatterns = [
-      r'\bOTP\b',
-      r'Please download',
-    ];
+    final skipPatterns = [r'\bOTP\b', r'Please download'];
 
     for (final pattern in skipPatterns) {
       if (body.contains(RegExp(pattern, caseSensitive: false))) return true;
@@ -503,10 +783,7 @@ class BankMessageParser {
   ParsedTransaction? _parseBOA() {
     if (_shouldSkipBOA()) return null;
 
-    final parsers = [
-      _parseBOADebit,
-      _parseBOACredit,
-    ];
+    final parsers = [_parseBOADebit, _parseBOACredit];
 
     for (final parser in parsers) {
       final result = parser();

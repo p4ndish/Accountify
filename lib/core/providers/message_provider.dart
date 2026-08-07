@@ -67,13 +67,15 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
         columns: [SmsColumn.ADDRESS],
         filter: SmsFilter.where(SmsColumn.ADDRESS).equals("test"),
       );
-      final newState = (state.value ?? const SmsImportState())
-          .copyWith(permissionGranted: true);
+      final newState = (state.value ?? const SmsImportState()).copyWith(
+        permissionGranted: true,
+      );
       state = AsyncValue.data(newState);
       return true;
     } catch (e) {
-      final newState = (state.value ?? const SmsImportState())
-          .copyWith(permissionGranted: false);
+      final newState = (state.value ?? const SmsImportState()).copyWith(
+        permissionGranted: false,
+      );
       state = AsyncValue.data(newState);
       return false;
     }
@@ -99,7 +101,7 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
   /// Import messages from SMS
   Future<int> importMessages({bool force = false}) async {
     final currentState = state.value ?? const SmsImportState();
-    
+
     // Check if already imported and not forcing
     if (!force) {
       final isDone = await _isImportDone();
@@ -128,7 +130,9 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
     }
   }
 
-  Future<SmsImportState> _importMessagesInternal(SmsImportState currentState) async {
+  Future<SmsImportState> _importMessagesInternal(
+    SmsImportState currentState,
+  ) async {
     final db = ref.read(appDatabaseProvider);
     final banks = await db.select(db.banks).get();
     final targetBanks = banks
@@ -140,6 +144,15 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
         )
         .where((b) => b.addressName.isNotEmpty)
         .toList();
+
+    // The user's own bank account numbers (set via the account-number dialog).
+    // A Telebirr<->bank transfer whose counterparty account matches one of
+    // these is a true internal movement and should be excluded from aggregate
+    // received/sent totals.
+    final ownedAccounts = banks
+        .map((b) => b.accountNumber.trim())
+        .where((a) => a.isNotEmpty)
+        .toSet();
 
     var inserted = 0;
 
@@ -164,8 +177,21 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
         );
         if (exists) continue;
 
+        // Detect true internal transfers: a Telebirr->bank transfer whose
+        // destination account is one of the user's own accounts becomes
+        // 'bank_out' so it is excluded from aggregate sent/received totals.
+        var subType = parsed.subType;
+        if (parsed.counterpartyAccount.isNotEmpty &&
+            ownedAccounts.contains(parsed.counterpartyAccount)) {
+          subType = parsed.transactionType == 'debited'
+              ? 'bank_out'
+              : 'bank_in';
+        }
+
         await db.transaction(() async {
-          await db.into(db.transactions).insert(
+          await db
+              .into(db.transactions)
+              .insert(
                 TransactionsCompanion.insert(
                   name: parsed.name,
                   bank: bank.id,
@@ -174,15 +200,12 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
                   transactionType: parsed.transactionType,
                   paymentLink: parsed.paymentLink,
                   referenceCode: parsed.referenceCode,
+                  subType: Value(subType),
                   date: parsed.date,
                 ),
               );
 
-          await _updateBankBalance(
-            db: db,
-            bankId: bank.id,
-            parsed: parsed,
-          );
+          await _updateBankBalance(db: db, bankId: bank.id, parsed: parsed);
         });
 
         inserted++;
@@ -212,10 +235,9 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
   Future<void> resetImportStatus() async {
     await _storage.delete(key: _importDoneKey);
     final currentState = state.value ?? const SmsImportState();
-    state = AsyncValue.data(currentState.copyWith(
-      importDone: false,
-      importedCount: 0,
-    ));
+    state = AsyncValue.data(
+      currentState.copyWith(importDone: false, importedCount: 0),
+    );
   }
 
   Future<bool> _isImportDone() async {
@@ -233,11 +255,10 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
     required String referenceCode,
   }) async {
     final existing =
-        await (db.select(db.transactions)
-              ..where(
-                (t) =>
-                    t.bank.equals(bankId) & t.referenceCode.equals(referenceCode),
-              ))
+        await (db.select(db.transactions)..where(
+              (t) =>
+                  t.bank.equals(bankId) & t.referenceCode.equals(referenceCode),
+            ))
             .getSingleOrNull();
     return existing != null;
   }
@@ -265,8 +286,9 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
     required int bankId,
     required ParsedTransaction parsed,
   }) async {
-    final current = await (db.select(db.banks)..where((b) => b.id.equals(bankId)))
-        .getSingle();
+    final current = await (db.select(
+      db.banks,
+    )..where((b) => b.id.equals(bankId))).getSingle();
 
     final newReceived = parsed.transactionType == 'credited'
         ? current.received + parsed.amount
@@ -289,8 +311,8 @@ class SmsImportNotifier extends AsyncNotifier<SmsImportState> {
 /// New AsyncNotifier-based provider for SMS import
 final smsImportNotifierProvider =
     AsyncNotifierProvider<SmsImportNotifier, SmsImportState>(() {
-  return SmsImportNotifier();
-});
+      return SmsImportNotifier();
+    });
 
 // Legacy provider for backward compatibility (deprecated)
 final smsImportProvider = FutureProvider<int>((ref) async {
@@ -330,11 +352,10 @@ class MessagesRepository {
     required String referenceCode,
   }) async {
     final existing =
-        await (_db.select(_db.transactions)
-              ..where(
-                (t) =>
-                    t.bank.equals(bankId) & t.referenceCode.equals(referenceCode),
-              ))
+        await (_db.select(_db.transactions)..where(
+              (t) =>
+                  t.bank.equals(bankId) & t.referenceCode.equals(referenceCode),
+            ))
             .getSingleOrNull();
     return existing != null;
   }
@@ -358,6 +379,12 @@ class MessagesRepository {
         .where((b) => b.addressName.isNotEmpty)
         .toList();
 
+    // The user's own bank account numbers, used to detect internal transfers.
+    final ownedAccounts = banks
+        .map((b) => b.accountNumber.trim())
+        .where((a) => a.isNotEmpty)
+        .toSet();
+
     var inserted = 0;
 
     for (final bank in targetBanks) {
@@ -379,8 +406,20 @@ class MessagesRepository {
         );
         if (exists) continue;
 
+        // Upgrade to an internal transfer when the counterparty account is one
+        // of the user's own accounts, so it is excluded from aggregate totals.
+        var subType = parsed.subType;
+        if (parsed.counterpartyAccount.isNotEmpty &&
+            ownedAccounts.contains(parsed.counterpartyAccount)) {
+          subType = parsed.transactionType == 'debited'
+              ? 'bank_out'
+              : 'bank_in';
+        }
+
         await _db.transaction(() async {
-          await _db.into(_db.transactions).insert(
+          await _db
+              .into(_db.transactions)
+              .insert(
                 TransactionsCompanion.insert(
                   name: parsed.name,
                   bank: bank.id,
@@ -389,6 +428,7 @@ class MessagesRepository {
                   transactionType: parsed.transactionType,
                   paymentLink: parsed.paymentLink,
                   referenceCode: parsed.referenceCode,
+                  subType: Value(subType),
                   date: parsed.date,
                 ),
               );
@@ -425,8 +465,9 @@ class MessagesRepository {
     required int bankId,
     required ParsedTransaction parsed,
   }) async {
-    final current = await (_db.select(_db.banks)..where((b) => b.id.equals(bankId)))
-        .getSingle();
+    final current = await (_db.select(
+      _db.banks,
+    )..where((b) => b.id.equals(bankId))).getSingle();
 
     final newReceived = parsed.transactionType == 'credited'
         ? current.received + parsed.amount
@@ -462,22 +503,19 @@ class MessagesRepository {
         'shortName': bank.shortName,
         'addressName': bank.addressName,
         'messageCount': messages.length,
-        'messages': messages
-            .map(
-              (message) {
-                final dateSent = message.dateSent;
-                return {
-                  'address': message.address,
-                  'body': message.body,
-                  'dateSent': dateSent,
-                  'isoDate': dateSent == null
-                      ? null
-                      : DateTime.fromMillisecondsSinceEpoch(dateSent)
-                          .toIso8601String(),
-                };
-              },
-            )
-            .toList(),
+        'messages': messages.map((message) {
+          final dateSent = message.dateSent;
+          return {
+            'address': message.address,
+            'body': message.body,
+            'dateSent': dateSent,
+            'isoDate': dateSent == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(
+                    dateSent,
+                  ).toIso8601String(),
+          };
+        }).toList(),
       });
     }
 
@@ -517,16 +555,16 @@ class MessagesRepository {
 
     // Group messages by address/contact
     final Map<String, List<Map<String, dynamic>>> messagesByContact = {};
-    
+
     for (final message in allMessages) {
       final address = message.address ?? 'Unknown';
       final body = message.body ?? '';
       final dateSent = message.dateSent;
-      
+
       if (!messagesByContact.containsKey(address)) {
         messagesByContact[address] = [];
       }
-      
+
       messagesByContact[address]!.add({
         'body': body,
         'dateSent': dateSent,
@@ -535,7 +573,9 @@ class MessagesRepository {
             : null,
         'timestamp': message.date,
         'timestampIso': message.date != null
-            ? DateTime.fromMillisecondsSinceEpoch(message.date!).toIso8601String()
+            ? DateTime.fromMillisecondsSinceEpoch(
+                message.date!,
+              ).toIso8601String()
             : null,
       });
     }
@@ -551,7 +591,11 @@ class MessagesRepository {
     });
 
     // Sort by contact address for consistency
-    exportData.sort((a, b) => (a['contactAddress'] as String).compareTo(b['contactAddress'] as String));
+    exportData.sort(
+      (a, b) => (a['contactAddress'] as String).compareTo(
+        b['contactAddress'] as String,
+      ),
+    );
 
     final payload = {
       'exportedAt': DateTime.now().toIso8601String(),
@@ -562,8 +606,9 @@ class MessagesRepository {
 
     // Try to save to Downloads folder, fallback to app documents
     Directory? targetDir;
-    String fileName = 'sms_by_contact_${DateTime.now().millisecondsSinceEpoch}.json';
-    
+    String fileName =
+        'sms_by_contact_${DateTime.now().millisecondsSinceEpoch}.json';
+
     // Try Downloads folder on Android
     if (Platform.isAndroid) {
       final downloadsPath = '/storage/emulated/0/Download';
@@ -572,10 +617,10 @@ class MessagesRepository {
         targetDir = downloadsDir;
       }
     }
-    
+
     // Fallback to app documents
     targetDir ??= await getApplicationDocumentsDirectory();
-    
+
     final file = File('${targetDir.path}/$fileName');
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString(encoder.convert(payload));

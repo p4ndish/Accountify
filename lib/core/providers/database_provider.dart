@@ -67,20 +67,23 @@ class BankRepository {
         .toList();
   }
 
-
-  
-  Future<List<TransactionWithBank>> getTransactionsWithBank(int bankId, {int limit = 100, int offset = 0}) async {
-    final query = _db.select(_db.transactions).join([
-      innerJoin(_db.banks, _db.banks.id.equalsExp(_db.transactions.bank)),
-    ])
-      ..where(_db.transactions.bank.equals(bankId))
-      ..orderBy([
-        OrderingTerm(
-          expression: _db.transactions.date,
-          mode: OrderingMode.desc,
-        ),
-      ])
-      ..limit(limit, offset: offset);
+  Future<List<TransactionWithBank>> getTransactionsWithBank(
+    int bankId, {
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final query =
+        _db.select(_db.transactions).join([
+            innerJoin(_db.banks, _db.banks.id.equalsExp(_db.transactions.bank)),
+          ])
+          ..where(_db.transactions.bank.equals(bankId))
+          ..orderBy([
+            OrderingTerm(
+              expression: _db.transactions.date,
+              mode: OrderingMode.desc,
+            ),
+          ])
+          ..limit(limit, offset: offset);
 
     final rows = await query.get();
     return rows
@@ -92,30 +95,54 @@ class BankRepository {
         )
         .toList();
   }
-  
+
   Future<Map<String, double>> getOverallBalance() async {
     // Sum balances stored on the bank table.
-    final totalBalanceResult = await (_db.selectOnly(_db.banks)
-          ..addColumns([_db.banks.balance.sum()]))
-        .getSingle();
+    final totalBalanceResult = await (_db.selectOnly(
+      _db.banks,
+    )..addColumns([_db.banks.balance.sum()])).getSingle();
 
-    // Sum transactions by type.
-    final receivedResult = await (_db.selectOnly(_db.transactions)
-          ..addColumns([_db.transactions.amount.sum()])
-          ..where(_db.transactions.transactionType.equals('credited')))
-        .getSingle();
+    // Transfers between the user's own accounts (e.g. Telebirr <-> CBE) would
+    // generate both a debit on the source bank and a credit on the destination
+    // bank. When such a movement can be identified it is tagged with subType
+    // 'bank_in'/'bank_out' and excluded here so it is not double-counted in the
+    // overall received/sent totals. Per-bank balances still account for it.
+    //
+    // NOTE: automatic detection of internal transfers is currently disabled.
+    // The app does not store the user's own bank account numbers, so a
+    // Telebirr<->bank transfer cannot be reliably distinguished from a normal
+    // payment to/from another person. Those transfers are therefore counted as
+    // regular sent/received. This filter is kept for any legacy rows and for
+    // when explicit account-number matching is added later.
+    final isInternalTransfer = _db.transactions.subType.isIn(const [
+      'bank_in',
+      'bank_out',
+    ]);
 
-    final sentResult = await (_db.selectOnly(_db.transactions)
-          ..addColumns([_db.transactions.amount.sum()])
-          ..where(_db.transactions.transactionType.equals('debited')))
-        .getSingle();
+    // Sum transactions by type, excluding internal transfers.
+    final receivedResult =
+        await (_db.selectOnly(_db.transactions)
+              ..addColumns([_db.transactions.amount.sum()])
+              ..where(
+                _db.transactions.transactionType.equals('credited') &
+                    isInternalTransfer.not(),
+              ))
+            .getSingle();
+
+    final sentResult =
+        await (_db.selectOnly(_db.transactions)
+              ..addColumns([_db.transactions.amount.sum()])
+              ..where(
+                _db.transactions.transactionType.equals('debited') &
+                    isInternalTransfer.not(),
+              ))
+            .getSingle();
 
     final totalBalance =
         totalBalanceResult.read(_db.banks.balance.sum()) ?? 0.0;
     final totalReceived =
         receivedResult.read(_db.transactions.amount.sum()) ?? 0.0;
-    final totalSent =
-        sentResult.read(_db.transactions.amount.sum()) ?? 0.0;
+    final totalSent = sentResult.read(_db.transactions.amount.sum()) ?? 0.0;
 
     return {
       'totalBalance': totalBalance,
@@ -129,17 +156,18 @@ class BankRepository {
     required String? reason,
     required List<String> tags,
   }) async {
-    final normalizedTags = tags
-        .map((tag) => tag.trim().toLowerCase())
-        .where((tag) => tag.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final normalizedTags =
+        tags
+            .map((tag) => tag.trim().toLowerCase())
+            .where((tag) => tag.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
 
     await _db.transaction(() async {
-      await (_db.update(_db.transactions)
-            ..where((t) => t.id.equals(transactionId)))
-          .write(
+      await (_db.update(
+        _db.transactions,
+      )..where((t) => t.id.equals(transactionId))).write(
         TransactionsCompanion(
           reason: Value(
             reason == null || reason.trim().isEmpty ? null : reason.trim(),
@@ -147,21 +175,24 @@ class BankRepository {
         ),
       );
 
-      await (_db.delete(_db.transactionTags)
-            ..where((row) => row.transactionId.equals(transactionId)))
-          .go();
+      await (_db.delete(
+        _db.transactionTags,
+      )..where((row) => row.transactionId.equals(transactionId))).go();
 
       for (final tagName in normalizedTags) {
-        final existingTag = await (_db.select(_db.tags)
-              ..where((t) => t.name.equals(tagName)))
-            .getSingleOrNull();
+        final existingTag = await (_db.select(
+          _db.tags,
+        )..where((t) => t.name.equals(tagName))).getSingleOrNull();
 
-        final tagId = existingTag?.id ??
-            await _db.into(_db.tags).insert(
-                  TagsCompanion.insert(name: tagName),
-                );
+        final tagId =
+            existingTag?.id ??
+            await _db
+                .into(_db.tags)
+                .insert(TagsCompanion.insert(name: tagName));
 
-        await _db.into(_db.transactionTags).insert(
+        await _db
+            .into(_db.transactionTags)
+            .insert(
               TransactionTagsCompanion.insert(
                 transactionId: transactionId,
                 tagId: tagId,
@@ -173,17 +204,15 @@ class BankRepository {
   }
 
   Future<TransactionMetadata?> getTransactionMetadata(int transactionId) async {
-    final transaction = await (_db.select(_db.transactions)
-          ..where((t) => t.id.equals(transactionId)))
-        .getSingleOrNull();
+    final transaction = await (_db.select(
+      _db.transactions,
+    )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
 
     if (transaction == null) return null;
 
     final rows = await (_db.select(_db.transactionTags).join([
       innerJoin(_db.tags, _db.tags.id.equalsExp(_db.transactionTags.tagId)),
-    ])
-          ..where(_db.transactionTags.transactionId.equals(transactionId)))
-        .get();
+    ])..where(_db.transactionTags.transactionId.equals(transactionId))).get();
 
     final tags = rows.map((row) => row.readTable(_db.tags).name).toList()
       ..sort();
@@ -211,25 +240,30 @@ class BankRepository {
     if (transaction.subType == 'package') {
       return 'Package purchase';
     }
+    if (transaction.subType == 'atm') {
+      return subject.isEmpty ? 'ATM withdrawal' : subject;
+    }
 
     return isCredit ? 'Received from $subject' : 'Payment to $subject';
   }
 
   Future<void> saveAutomaticReasonIfMissing(int transactionId) async {
-    final transaction = await (_db.select(_db.transactions)
-          ..where((t) => t.id.equals(transactionId)))
-        .getSingleOrNull();
+    final transaction = await (_db.select(
+      _db.transactions,
+    )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
     if (transaction == null) return;
     if ((transaction.reason ?? '').trim().isNotEmpty) return;
 
-    await (_db.update(_db.transactions)
-          ..where((t) => t.id.equals(transactionId)))
-        .write(
+    await (_db.update(
+      _db.transactions,
+    )..where((t) => t.id.equals(transactionId))).write(
       TransactionsCompanion(reason: Value(buildAutomaticReason(transaction))),
     );
   }
 
-  Future<TransactionWithBank?> getTransactionWithBankById(int transactionId) async {
+  Future<TransactionWithBank?> getTransactionWithBankById(
+    int transactionId,
+  ) async {
     final query = _db.select(_db.transactions).join([
       innerJoin(_db.banks, _db.banks.id.equalsExp(_db.transactions.bank)),
     ])..where(_db.transactions.id.equals(transactionId));
@@ -251,11 +285,13 @@ class BankRepository {
 }
 
 final transactionMetadataProvider =
-    FutureProvider.family<TransactionMetadata?, int>((ref, transactionId) async {
-  final repository = ref.watch(bankRepositoryProvider);
-  return repository.getTransactionMetadata(transactionId);
-});
-
+    FutureProvider.family<TransactionMetadata?, int>((
+      ref,
+      transactionId,
+    ) async {
+      final repository = ref.watch(bankRepositoryProvider);
+      return repository.getTransactionMetadata(transactionId);
+    });
 
 final bankRepositoryProvider = Provider<BankRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
@@ -285,15 +321,14 @@ final transactionsWithBanksListProvider =
       return repository.getTransactionsWithBanks();
     });
 
-final transactionsWithBankListProvider =
-    FutureProvider.autoDispose.family<List<TransactionWithBank>, int>((ref, bankId) async {
+final transactionsWithBankListProvider = FutureProvider.autoDispose
+    .family<List<TransactionWithBank>, int>((ref, bankId) async {
       ref.keepAlive();
       final repository = ref.watch(bankRepositoryProvider);
       return repository.getTransactionsWithBank(bankId);
     });
 
-final overallBalanceProvider =
-    FutureProvider<Map<String, double>>((ref) async {
-      final repository = ref.watch(bankRepositoryProvider);
-      return repository.getOverallBalance();
-    });
+final overallBalanceProvider = FutureProvider<Map<String, double>>((ref) async {
+  final repository = ref.watch(bankRepositoryProvider);
+  return repository.getOverallBalance();
+});
